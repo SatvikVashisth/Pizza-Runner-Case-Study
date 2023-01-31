@@ -1,0 +1,272 @@
+---Q1.) What are the standard ingredients for each pizza?
+
+-- to solve this, first Pizza_recepies table is normalized s.t. each row has pizza_id and its corresponding one topping
+-- so that, we can join it with Pizza_toppings table to get the topping name
+
+
+SELECT *
+FROM pizza_recipes
+SELECT *
+FROM pizza_toppings
+
+
+CREATE TABLE pizza_recipes_1
+(
+pizza_id INT,
+toppings INT
+)
+
+SELECT *
+FROM pizza_recipes_1
+
+INSERT INTO pizza_recipes_1 (pizza_id, toppings)
+VALUES
+(1,1),
+(1,2),
+(1,3),
+(1,4),
+(1,5),
+(1,6),
+(1,8),
+(1,10),
+(2,4),
+(2,6),
+(2,7),
+(2,9),
+(2,11),
+(2,12)
+
+
+WITH CTE AS
+(
+select pizza_names.pizza_name, pizza_recipes_1.pizza_id, pizza_toppings.topping_name
+from pizza_recipes_1
+join pizza_toppings
+on pizza_recipes_1.toppings = pizza_toppings.topping_id
+join pizza_names
+on pizza_names.pizza_id = pizza_recipes_1.pizza_id
+--order by pizza_name, pizza_recipes_1.pizza_id
+)
+SELECT pizza_name, STRING_AGG(CAST(topping_name AS VARCHAR), ',') WITHIN GROUP (ORDER BY CAST(topping_name AS VARCHAR)) AS standard_toppings
+FROM CTE
+GROUP BY pizza_name
+
+
+
+
+--CLEANING
+-------------------------------------------------------------
+
+SELECT		
+   p.pizza_id,
+   TRIM(t.value) AS topping_id,
+   pt.topping_name
+ INTO cleaned_toppings
+ FROM pizza_recipes as p
+     CROSS APPLY string_split(CAST(p.toppings AS VARCHAR), ',') as t
+     JOIN pizza_toppings as pt
+     ON TRIM(t.value) = pt.topping_id 
+
+SELECT *
+FROM cleaned_toppings
+
+ALTER TABLE customer_orders
+ADD record_id INT IDENTITY(1,1)
+
+SELECT *
+FROM customer_orders
+
+
+-- to generate exxtra table
+SELECT		
+	c.record_id,
+	TRIM(e.value) AS topping_id
+INTO exxtras
+FROM 
+	customer_orders as c
+	CROSS APPLY string_split(c.extras, ',') as e
+
+SELECT *
+FROM exxtras
+
+
+-- to generate exclusions table
+SELECT		
+	c.record_id,
+	TRIM(e.value) AS topping_id
+INTO exxclusions
+FROM 
+	customer_orders as c
+	CROSS APPLY string_split(c.exclusions, ',') as e
+
+SELECT *
+FROM exxclusions
+
+
+---------------------------------------------------
+
+
+
+
+
+
+----(C.) Ingredient Optimisation
+
+---Q1.) What are the standard ingredients for each pizza?
+
+SELECT 
+	p.pizza_name,
+	STRING_AGG(CAST(t.topping_name AS VARCHAR), ', ') as ingredients
+FROM 
+	pizza_names p
+	JOIN cleaned_toppings t
+	ON p.pizza_id = t.pizza_id
+GROUP BY p.pizza_name
+
+
+---Q2.) What was the most commonly added extra?
+
+SELECT 
+	CAST(topping_name AS VARCHAR),
+	count(t.topping_id) as num_of_addition
+FROM 
+	exxtras e,
+	cleaned_toppings t
+WHERE e.topping_id = t.topping_id
+GROUP BY CAST(topping_name AS VARCHAR)
+ORDER BY count(t.topping_id) DESC
+
+
+---Q3.) What was the most common exclusion?
+
+SELECT 
+	CAST(topping_name AS VARCHAR),
+	count(t.topping_id) as num_of_addition
+FROM 
+	exxclusions e,
+	cleaned_toppings t
+WHERE e.topping_id = t.topping_id
+GROUP BY CAST(topping_name AS VARCHAR)
+ORDER BY count(t.topping_id) DESC
+
+
+---Q4.) Generate an order item for each record in the customers_orders table in the format of one of the following:
+--      Meat Lovers
+--      Meat Lovers - Exclude Beef
+--      Meat Lovers - Extra Bacon
+--      Meat Lovers - Exclude Cheese, Bacon - Extra Mushroom, Peppers
+
+
+
+
+WITH extras_cte AS
+(
+	SELECT 
+		e.record_id,
+		'Extra ' + STRING_AGG(CAST(t.topping_name AS VARCHAR), ', ') as record_options
+	FROM
+		exxtras e,
+		pizza_toppings t
+	WHERE e.topping_id = t.topping_id
+	GROUP BY record_id
+),
+exclusions_cte AS
+(
+	SELECT 
+		e.record_id,
+		'Exclude ' + STRING_AGG(CAST(t.topping_name AS VARCHAR), ', ') as record_options
+	FROM
+		exxclusions e,
+		pizza_toppings t
+	WHERE e.topping_id = t.topping_id
+	GROUP BY record_id
+),
+union_cte AS
+(
+	SELECT * FROM extras_cte
+	UNION
+	SELECT * FROM exclusions_cte
+)
+
+SELECT 
+	c.record_id,
+	CONCAT_WS(' - ', p.pizza_name, STRING_AGG(cte.record_options, ' - '))
+FROM 
+	customer_orders c
+	JOIN pizza_names p
+	ON c.pizza_id = p.pizza_id
+	LEFT JOIN union_cte cte
+	ON c.record_id = cte.record_id
+GROUP BY
+	c.record_id,
+	p.pizza_name
+ORDER BY c.record_id
+
+
+
+---Q5.) Generate an alphabetically ordered comma separated ingredient list for each pizza order from the customer_orders table and add a 2x in front of any relevant ingredients
+--      For example: "Meat Lovers: 2xBacon, Beef, ... , Salami"
+
+
+WITH ingredients_cte AS
+(
+	SELECT
+	c.record_id, 
+	p.pizza_name,
+	CASE
+		WHEN t.topping_id 
+		IN (select topping_id from exxtras e where c.record_id = e.record_id)
+		THEN '2x' + CAST(t.topping_name AS VARCHAR)
+		ELSE t.topping_name
+	END as topping
+	FROM 
+		customer_orders c
+		JOIN pizza_names p
+			ON c.pizza_id = p.pizza_id
+		JOIN cleaned_toppings t 
+			ON c.pizza_id = t.pizza_id
+	WHERE t.topping_id NOT IN (select topping_id from exxclusions e where c.record_id = e.record_id)
+)
+
+SELECT 
+	record_id,
+	CONCAT(pizza_name+':',STRING_AGG(CAST(topping AS VARCHAR), ', ')) as ingredients_list
+FROM ingredients_cte
+GROUP BY 
+	record_id,
+	pizza_name
+ORDER BY record_id
+
+
+
+---Q6.) What is the total quantity of each ingredient used in all delivered pizzas sorted by most frequent first?
+
+WITH ingredients_cte AS
+(
+SELECT 
+	c.record_id,
+	t.topping_name,
+	CASE
+		-- if extra ingredient add 2
+		WHEN t.topping_id 
+		IN (select topping_id from exxtras e where e.record_id = c.record_id) 
+		THEN 2
+		-- if excluded ingredient add 0
+		WHEN t.topping_id 
+		IN (select topping_id from exxclusions e where e.record_id = c.record_id) 
+		THEN 0
+		-- normal ingredient add 1
+		ELSE 1 
+	END as times_used
+	FROM   
+		customer_orders AS c
+		JOIN cleaned_toppings AS t
+		ON c.pizza_id = t.pizza_id
+) 
+
+SELECT 
+    CAST(topping_name AS VARCHAR),
+    SUM(times_used) AS times_used 
+FROM ingredients_cte
+GROUP BY CAST(topping_name AS VARCHAR)
+ORDER BY SUM(times_used) DESC
