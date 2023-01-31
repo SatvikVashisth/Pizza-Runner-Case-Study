@@ -1,0 +1,47 @@
+UPDATE customer_orders
+SET exclusions = NULL
+WHERE exclusions = 'null' OR exclusions = ''
+
+UPDATE customer_orders
+SET extras = NULL
+WHERE extras = 'null' OR extras = ''
+
+-----
+
+UPDATE runner_orders
+SET distance = NULL
+WHERE distance = 'null' OR distance = ''
+
+UPDATE runner_orders
+SET pickup_time = NULL
+WHERE pickup_time = 'null' OR pickup_time = ''
+
+UPDATE runner_orders
+SET duration = NULL
+WHERE duration = 'null' OR duration = ''
+
+UPDATE runner_orders
+SET cancellation = NULL
+WHERE cancellation NOT LIKE '%cancellation'
+
+SELECT order_id,
+runner_id,
+pickup_time,
+CASE WHEN distance LIKE '%km' THEN TRIM('km' FROM distance)
+ELSE distance
+END AS distance_km,
+CASE WHEN duration LIKE '%mins' THEN TRIM('mins' FROM duration)
+WHEN duration LIKE '%minute' THEN TRIM('minute' FROM duration)
+WHEN duration LIKE '%minutes' THEN TRIM('minutes' FROM duration)
+ELSE duration
+END AS duration_mins,
+cancellation
+
+INTO runner_orders_0
+FROM runner_orders
+
+SELECT *
+FROM runner_orders_0
+
+SELECT * 
+FROM customer_orders
