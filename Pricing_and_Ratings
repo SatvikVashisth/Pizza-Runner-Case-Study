@@ -1,0 +1,155 @@
+---Q1.) If a Meat Lovers pizza costs $12 and Vegetarian costs $10 and there were no charges for changes - 
+--      how much money has Pizza Runner made so far if there are no delivery fees?
+
+
+SELECT 
+CONCAT(
+'$', SUM(CASE
+	WHEN pizza_names.pizza_name = 'Meatlovers' THEN 12
+    ELSE 10 
+	END
+)) AS tot_money_made
+FROM customer_orders
+JOIN pizza_names
+ON customer_orders.pizza_id = pizza_names.pizza_id
+JOIN runner_orders
+ON runner_orders.order_id = customer_orders.order_id
+WHERE runner_orders.cancellation IS NULL
+
+
+
+---Q2.) What if there was an additional $1 charge for any pizza extras?
+--      Add cheese is $1 extra
+
+
+
+WITH costs AS (
+SELECT co.extras, 
+CASE
+	WHEN pn.pizza_name = 'Meatlovers' THEN 12
+    ELSE 10
+END as pizza_cost
+FROM customer_orders co
+JOIN pizza_names pn
+ON co.pizza_id = pn.pizza_id
+JOIN runner_orders_0 ro
+ON ro.order_id = co.order_id
+WHERE ro.cancellation IS NULL
+), extra_costs as (
+SELECT costs.extras, costs.pizza_cost as total_money_made,
+CASE
+	WHEN costs.extras IS NOT NULL THEN 
+    	CASE
+        	WHEN costs.extras LIKE '%4%' THEN costs.pizza_cost+2
+            ELSE costs.pizza_cost+1
+        END
+    ELSE costs.pizza_cost
+END as adjusted_money_made
+FROM costs
+)
+
+SELECT CONCAT('$', SUM(extra_costs.adjusted_money_made)) as total_money_made_using_extras FROM extra_costs;
+
+
+
+
+
+
+
+
+
+---Q3.) The Pizza Runner team now wants to add an additional ratings system that allows customers to rate their runner, 
+--      how would you design an additional table for this new dataset - generate a schema for this new table and insert your own data for ratings
+--      for each successful customer order between 1 to 5.
+
+DROP TABLE IF EXISTS runner_rating
+
+CREATE TABLE runner_rating
+(
+order_id INT,
+rating INT,
+review VARCHAR(1000)
+)
+
+
+INSERT INTO runner_rating
+VALUES ('1', '1', 'Very bad service'),
+       ('2', '1', NULL),
+       ('4', '1', 'Took too long...Pizza arrived cold'),
+       ('5', '2', 'Good service'),
+       ('7', '5', 'It was great, good service and fast'),
+       ('8', '2', 'He tossed it on the doorstep, poor service'),
+       ('10', '5', 'Delicious!, Also he delivered it sooner than expected!')
+--considering that order_id 3,6,9 were cancelled
+
+SELECT *
+FROM runner_rating
+
+--DROP TABLE runner_rating
+
+
+
+---Q4.) Using your newly generated table - can you join all of the information together to form a table which has the following information for successful deliveries?
+--customer_id
+--order_id
+--runner_id
+--rating
+--order_time
+--pickup_time
+--Time between order and pickup
+--Delivery duration
+--Average speed
+--Total number of pizzas
+
+SELECT customer_orders.customer_id,
+       customer_orders.order_id,
+       runner_id,
+       rating,
+       order_time,
+       pickup_time,
+       DATEDIFF(MINUTE, order_time, pickup_time) pick_up_time_mins,
+       duration_mins AS delivery_duration,
+       ROUND(distance_km*60/duration_mins, 2) AS average_speed,
+       COUNT(pizza_id) AS total_pizza_count
+FROM customer_orders
+INNER JOIN runner_orders_0 
+ON customer_orders.order_id = runner_orders_0.order_id
+INNER JOIN runner_rating 
+ON runner_rating.order_id = customer_orders.order_id
+GROUP BY customer_orders.order_id, customer_orders.customer_id, runner_id, rating,order_time, pickup_time, duration_mins, distance_km
+
+
+
+---Q5.) If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for 
+--      extras and each runner is paid $0.30 per kilometre traveled - 
+--      how much money does Pizza Runner have left over after these deliveries?
+
+
+
+
+
+SELECT concat('$', round(sum(pizza_cost-delivery_cost), 2)) AS pizza_runner_revenue
+FROM
+  (SELECT order_id,
+          distance_km,
+          sum(pizza_cost) AS pizza_cost,
+          round(0.30*distance_km, 2) AS delivery_cost
+   FROM
+     (SELECT runner_orders_0.order_id,
+          distance_km,
+             (CASE
+                  WHEN pizza_names.pizza_id = 1 THEN 12
+                  ELSE 10
+              END) AS pizza_cost
+FROM customer_orders
+INNER JOIN pizza_names 
+ON customer_orders.pizza_id = pizza_names.pizza_id
+INNER JOIN runner_orders_0 
+ON customer_orders.order_id = runner_orders_0.order_id
+WHERE cancellation IS NULL
+--ORDER BY order_id
+) t1
+GROUP BY order_id,
+          distance_km
+--ORDER BY order_id
+) t2
